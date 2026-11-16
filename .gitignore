@@ -86,3 +86,6 @@ scripts/
 .expo
 dist/
 web-build/
+# Local build artifacts & IDE session data
+*.apk
+.codebuddy/

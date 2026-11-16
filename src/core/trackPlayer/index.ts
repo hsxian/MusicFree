@@ -16,6 +16,7 @@ import {
 import Network from "@/utils/network";
 import PersistStatus from "@/utils/persistStatus";
 import { getQualityOrder } from "@/utils/qualities";
+import Toast from "@/utils/toast";
 import { musicIsPaused } from "@/utils/trackUtils";
 import EventEmitter from "eventemitter3";
 import { produce } from "immer";
@@ -30,6 +31,7 @@ import ReactNativeTrackPlayer, {
     useProgress,
 } from "react-native-track-player";
 import LocalMusicSheet from "../localMusicSheet";
+import { cacheMusic, resolveCacheSource } from "../playCache";
 
 import { TrackPlayerEvents } from "@/core.defination/trackPlayer";
 import type { IAppConfig } from "@/types/core/config";
@@ -157,21 +159,27 @@ class TrackPlayer extends EventEmitter<{
                 track.isInit = true;
             }
 
-            // 异步
-            this.pluginManagerService.getByMedia(track)
-                ?.methods.getMediaSource(track, quality)
-                .then(async newSource => {
+            // 异步：优先用播放缓存，离线也能恢复
+            resolveCacheSource(track, [quality]).then(async cachedSource => {
+                if (cachedSource) {
+                    track.url = cachedSource.url;
+                    track.headers = undefined;
+                } else {
+                    const newSource = await this.pluginManagerService
+                        .getByMedia(track)
+                        ?.methods.getMediaSource(track, quality);
                     track.url = newSource?.url || track.url;
                     track.headers = newSource?.headers || track.headers;
+                }
 
-                    if (isSameMediaItem(this.currentMusic, track)) {
-                        await this.setTrackSource(track as Track, false);
-                        if (progress) {
-                            // 异步
-                            this.seekTo(progress);
-                        }
+                if (isSameMediaItem(this.currentMusic, track)) {
+                    await this.setTrackSource(track as Track, false);
+                    if (progress) {
+                        // 异步
+                        this.seekTo(progress);
                     }
-                });
+                }
+            }).catch(e => errorLog("恢复播放源失败", e));
             this.setCurrentMusic(track);
 
             if (progress) {
@@ -408,14 +416,32 @@ class TrackPlayer extends EventEmitter<{
             }
             // 1. 移动网络禁止播放
             const localPath = getLocalPath(musicItem);
+            // 1.1 音质排序：缓存查询与取源共用同一顺序
+            const qualityOrder = getQualityOrder(
+                this.configService.getConfig("basic.defaultPlayQuality") ?? "standard",
+                this.configService.getConfig("basic.playQualityOrder") ?? "asc",
+            );
+            // 1.2 已缓存的等同于本地文件，不受移动网络限制
+            const cachedSource = await resolveCacheSource(musicItem, qualityOrder);
             if (
                 Network.isCellular &&
                 !this.configService.getConfig("basic.useCelluarNetworkPlay") &&
                 !LocalMusicSheet.isLocalMusic(musicItem) &&
-                !localPath
+                !localPath &&
+                !cachedSource
             ) {
                 await ReactNativeTrackPlayer.reset();
                 throw new Error(PlayFailReason.FORBID_CELLUAR_NETWORK_PLAY);
+            }
+            // 1.3 离线且无缓存：取源必然失败，直接提示而不是走一遍错误跳曲
+            if (
+                Network.isOffline &&
+                !cachedSource &&
+                !localPath &&
+                !LocalMusicSheet.isLocalMusic(musicItem)
+            ) {
+                Toast.warn("当前无网络且未缓存，无法播放");
+                return;
             }
 
             // 2. 如果是当前正在播放的音频
@@ -474,28 +500,29 @@ class TrackPlayer extends EventEmitter<{
 
             // 5.1 通过插件获取音源
             const plugin = this.pluginManagerService.getByName(musicItem.platform);
-            // 5.2 获取音质排序
-            const qualityOrder = getQualityOrder(
-                this.configService.getConfig("basic.defaultPlayQuality") ?? "standard",
-                this.configService.getConfig("basic.playQualityOrder") ?? "asc",
-            );
-            // 5.3 插件返回音源
+            // 5.2 命中播放缓存则直接本地播放，无需网络
             let source: IPlugin.IMediaSourceResult | null = null;
-            for (let quality of qualityOrder) {
-                if (this.isCurrentMusic(musicItem)) {
-                    source =
-                        (await plugin?.methods?.getMediaSource(
-                            musicItem,
-                            quality,
-                        )) ?? null;
-                    // 5.3.1 获取到真实源
-                    if (source) {
-                        this.setQuality(quality);
-                        break;
+            if (cachedSource) {
+                source = { url: cachedSource.url };
+                this.setQuality(cachedSource.quality);
+            } else {
+                // 5.3 插件返回音源
+                for (let quality of qualityOrder) {
+                    if (this.isCurrentMusic(musicItem)) {
+                        source =
+                            (await plugin?.methods?.getMediaSource(
+                                musicItem,
+                                quality,
+                            )) ?? null;
+                        // 5.3.1 获取到真实源
+                        if (source) {
+                            this.setQuality(quality);
+                            break;
+                        }
+                    } else {
+                        // 5.3.2 已经切换到其他歌曲了，
+                        return;
                     }
-                } else {
-                    // 5.3.2 已经切换到其他歌曲了，
-                    return;
                 }
             }
 
@@ -574,7 +601,20 @@ class TrackPlayer extends EventEmitter<{
             this.musicHistoryService.addMusic(musicItem);
 
             trace("获取音源成功", track);
-            // 9. 设置音源
+            // 9. 整曲先落到本地再交给播放器，避免播放器拉流与下载并发（两倍流量）
+            const localSource = await cacheMusic(
+                musicItem,
+                this.quality,
+                source,
+            );
+            if (localSource) {
+                track.url = localSource.url;
+                track.headers = undefined;
+            }
+            // 9.1 等待下载期间可能已经切歌
+            if (!this.isCurrentMusic(musicItem)) {
+                return;
+            }
             await this.setTrackSource(track as Track);
 
             // 10. 获取补充信息
@@ -677,10 +717,19 @@ class TrackPlayer extends EventEmitter<{
         try {
             const progress = await ReactNativeTrackPlayer.getProgress();
             const plugin = this.pluginManagerService.getByMedia(musicItem);
-            const newSource = await plugin?.methods?.getMediaSource(
-                musicItem,
-                newQuality,
-            );
+            // 目标音质已缓存则直接本地播放，离线也能切音质
+            let newSource: IPlugin.IMediaSourceResult | null =
+                await resolveCacheSource(musicItem, [newQuality]);
+            if (!newSource) {
+                const remoteSource = await plugin?.methods?.getMediaSource(
+                    musicItem,
+                    newQuality,
+                );
+                // 同样先下完再切，避免播放器拉流与下载并发；下不下来就退回远程源
+                newSource =
+                    (await cacheMusic(musicItem, newQuality, remoteSource)) ??
+                    remoteSource;
+            }
             if (!newSource?.url) {
                 throw new Error(PlayFailReason.INVALID_SOURCE);
             }

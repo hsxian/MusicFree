@@ -9,6 +9,7 @@ import { SortType } from "@/constants/commonConst.ts";
 import pathConst from "@/constants/pathConst";
 import Config, { useAppConfig } from "@/core/appConfig";
 import { useI18N } from "@/core/i18n";
+import { clearPlayCacheIndex } from "@/core/playCache";
 import { ROUTE_PATH, useNavigate } from "@/core/router";
 import useColors from "@/hooks/useColors";
 import LyricUtil, { NativeTextAlignment } from "@/native/lyricUtil";
@@ -469,6 +470,8 @@ export default function BasicSetting() {
                             content: t("dialog.clearMusicCacheContent"),
                             async onOk() {
                                 await clearCache("music");
+                                // 索引必须跟着清，否则残留记录会让缓存误判为已完成
+                                clearPlayCacheIndex();
                                 Toast.success(t("toast.musicCacheCleared"));
                                 refreshCacheSize();
                             },

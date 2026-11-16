@@ -93,7 +93,8 @@ export async function getCacheSize(
     type: "music" | "lyric" | "image",
 ): Promise<number> {
     if (type === "music") {
-        return getFolderSize(pathConst.musicCachePath);
+        /** 口径是边听边存的播放缓存；ExoPlayer 自身的缓冲不单独统计 */
+        return getFolderSize(pathConst.playCachePath);
     } else if (type === "lyric") {
         return getFolderSize(pathConst.lrcCachePath);
     } else if (type === "image") {
@@ -105,6 +106,9 @@ export async function getCacheSize(
 export async function clearCache(type: "music" | "lyric" | "image") {
     if (type === "music") {
         try {
+            if (await exists(pathConst.playCachePath)) {
+                await unlink(pathConst.playCachePath);
+            }
             if (await exists(pathConst.musicCachePath)) {
                 return unlink(pathConst.musicCachePath);
             }

@@ -17,6 +17,7 @@ export default {
     localLrcPath: `${basePath}/local_lrc/`,
     lrcCachePath: `${basePath}/cache/lrc/`,
     downloadCachePath: `${basePath}/cache/download/`,
+    playCachePath: `${basePath}/cache/play/`,
     downloadPath: `${basePath}/download/`,
     downloadMusicPath: `${basePath}/download/music/`,
     mmkvPath: `${basePath}/mmkv`,
