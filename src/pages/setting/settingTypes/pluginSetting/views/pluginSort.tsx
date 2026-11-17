@@ -24,7 +24,7 @@ export default function PluginSort() {
     function renderSortingItem({ item }: { item: Plugin }) {
         return (
             <View style={style.sortItem}>
-                <ThemeText>{item.name}</ThemeText>
+                <ThemeText>{item.displayName}</ThemeText>
             </View>
         );
     }

@@ -15,7 +15,7 @@ export default function Body() {
     const routes = PluginManager.getSortedPluginsWithAbility("getRecommendSheetsByTag").map(
         _ => ({
             key: _.hash,
-            title: _.name,
+            title: _.displayName,
         }),
     );
     const { t } = useI18N();

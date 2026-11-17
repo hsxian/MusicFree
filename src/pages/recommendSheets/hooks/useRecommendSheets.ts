@@ -46,7 +46,7 @@ export default function (pluginHash: string, tag: ICommon.IUnique) {
                     setSheets(prev => [
                         ...prev,
                         ...res.data!.map(item =>
-                            resetMediaItem(item, plugin.instance.platform),
+                            resetMediaItem(item, plugin.name),
                         ),
                     ]);
                 }

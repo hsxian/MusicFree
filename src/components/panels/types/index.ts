@@ -1,5 +1,6 @@
 import AddToMusicSheet from "./addToMusicSheet";
 import AssociateLrc from "./associateLrc";
+import ClaimPlatforms from "./claimPlatforms";
 import ColorPicker from "./colorPicker";
 import ImportMusicSheet from "./importMusicSheet";
 import MusicItemOptions from "./musicItemOptions";
@@ -10,6 +11,7 @@ import PlayRate from "./playRate";
 import SearchLrc from "./searchLrc";
 import SetFontSize from "./setFontSize";
 import SetLyricOffset from "./setLyricOffset";
+import SetMatchNames from "./setMatchNames";
 import SetUserVariables from "./setUserVariables";
 import SheetTags from "./sheetTags";
 import SimpleInput from "./simpleInput";
@@ -51,6 +53,10 @@ export default {
     ColorPicker,
     /** 设置插件用户变量 */
     SetUserVariables,
+    /** 设置插件匹配名 */
+    SetMatchNames,
+    /** 修复失效平台名 */
+    ClaimPlatforms,
     /** 设置字体 */
     SetFontSize,
     /** 设置歌词偏移 */

@@ -3,6 +3,7 @@ import {
     localPluginPlatform,
 } from "@/constants/commonConst";
 import { getMediaExtraProperty } from "./mediaExtra";
+import { canonicalPlatform } from "@/core/pluginManager/platformMatch";
 
 /**
  * 获取媒体资源的唯一key
@@ -10,7 +11,11 @@ import { getMediaExtraProperty } from "./mediaExtra";
  * @returns 
  */
 export function getMediaUniqueKey(mediaItem: ICommon.IMediaBase) {
-    return `${mediaItem.platform}@${mediaItem.id}`;
+    /**
+     * platform 可能是用户起的别名（改名前的老数据还可能是更早的别名），
+     * 这里归一到主键：否则同一首歌会因音源改过名算出两个键，判重直接失效。
+     */
+    return `${canonicalPlatform(mediaItem.platform)}@${mediaItem.id}`;
 }
 
 /**
@@ -51,7 +56,12 @@ export function isSameMediaItem(
     b: ICommon.IMediaBase | null | undefined,
 ) {
     // eslint-disable-next-line eqeqeq
-    return !!(a && b && a.id == b.id && a.platform === b.platform);
+    return !!(
+        a &&
+        b &&
+        a.id == b.id &&
+        canonicalPlatform(a.platform) === canonicalPlatform(b.platform)
+    );
 }
 
 

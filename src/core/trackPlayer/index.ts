@@ -37,6 +37,7 @@ import type { IMusicHistory } from "@/types/core/musicHistory";
 import { ITrackPlayer } from "@/types/core/trackPlayer/index";
 import minDistance from "@/utils/minDistance";
 import { IPluginManager } from "@/types/core/pluginManager";
+import { isPluginOfPlatform } from "@/core/pluginManager/platformMatch";
 import { ImgAsset } from "@/constants/assetsConst";
 import { resolveImportedAssetOrPath } from "@/utils/fileUtils";
 
@@ -937,7 +938,8 @@ class TrackPlayer extends EventEmitter<{
             if (abortFunction?.() || Date.now() - startTime > 8000) {
                 break;
             }
-            if (plugin.name === musicItem.platform) {
+            /** 已经是这首歌的音源就别再搜了；曲目 platform 存的是别名时也要认得出 */
+            if (isPluginOfPlatform(plugin, musicItem.platform)) {
                 continue;
             }
             const results = await plugin.methods

@@ -19,6 +19,11 @@ import { useEffect, useState } from "react";
 import { copyFile, readDir, readFile, unlink, writeFile } from "react-native-fs";
 import { showToast } from "@/components/base/toast";
 import { devLog, errorLog, trace } from "../../utils/log";
+import {
+    findPluginByPlatform,
+    invalidatePlatformCache,
+    setPlatformCandidatesProvider,
+} from "./platformMatch";
 import pluginMeta from "./meta";
 import { localFilePlugin, Plugin, PluginState } from "./plugin";
 import i18n from "../i18n";
@@ -37,11 +42,16 @@ const ee = new EventEmitter<{
     "enabled-updated": (pluginName: string, enabled: boolean) => void;
 }>();
 
+/** 起别名时撞名的两种情况，界面按这个出提示 */
+export type PluginAliasConflict = "platform" | "alias";
+
 class PluginManager implements IPluginManager, IInjectable {
     private appConfigService!: IAppConfig;
 
     injectDependencies(config: IAppConfig): void {
         this.appConfigService = config;
+        /** 让平台名归一（别名→主键）能用上实时插件列表，避开 mediaUtils 与插件管理器的循环依赖 */
+        setPlatformCandidatesProvider(() => this.getPlugins());
     }
 
     /**
@@ -58,6 +68,8 @@ class PluginManager implements IPluginManager, IInjectable {
      */
     private setPlugins(plugins: Plugin[]) {
         getDefaultStore().set(pluginsAtom, plugins);
+        /** 插件装/卸之后，平台名到主键的对应关系可能变了 */
+        invalidatePlatformCache();
 
         // 清理缓存中已卸载的插件
         const cachedKeys = pluginCacheStore.getAllKeys();
@@ -389,6 +401,7 @@ class PluginManager implements IPluginManager, IInjectable {
                 // 防止其他重名
                 if (plugins.every(_ => _.name !== pluginName)) {
                     removeAllMediaExtra(pluginName);
+                    pluginMeta.setPluginAlias(pluginName, "");
                 }
             } catch {}
         }
@@ -451,14 +464,18 @@ class PluginManager implements IPluginManager, IInjectable {
     }
 
     /**
-     * 通过名称获取插件
-     * @param name - 要查找的插件名称
-     * @returns 匹配名称的插件实例或本地文件插件
+     * 通过平台名获取插件
+     *
+     * 曲目里的 platform 可能是用户起的别名（甚至是以前的别名），
+     * 所以这里必须走 platformMatch：主键优先，别名兜底。
+     * 只按 name 精确匹配的话，改一次名整库曲目就取不到源了。
+     * @param name - 平台名（主键或别名）
+     * @returns 匹配的插件实例或本地文件插件
      */
     getByName(name: string) {
         return name === localPluginPlatform
             ? localFilePlugin
-            : this.getPlugins().find(_ => _.name === name);
+            : findPluginByPlatform(name, this.getPlugins());
     }
 
     /**
@@ -609,6 +626,84 @@ class PluginManager implements IPluginManager, IInjectable {
             return this.getByName(alternativePluginName);
         }
         return null;
+    }
+
+    /**
+     * 设置音源显示名。
+     *
+     * 只影响界面展示，不写进曲目数据、也不参与平台解析，所以改名不会让存量曲目找不到源。
+     * 仍然不许跟别家撞名：撞了主键或别家展示名，界面上两个音源分不清。
+     * @param plugin - 目标插件
+     * @param alias - 显示名，传空串恢复默认名称
+     * @returns 撞名原因；null 表示已设置成功
+     */
+    setPluginDisplayName(plugin: Plugin, alias: string): PluginAliasConflict | null {
+        let nextAlias = alias.trim();
+        if (nextAlias === plugin.name) {
+            /** 跟原名一样等于没改，按恢复默认处理，免得白占一条别名 */
+            nextAlias = "";
+        }
+
+        if (nextAlias) {
+            const otherPlugins = this.getPlugins().filter(it => it !== plugin);
+            if (otherPlugins.some(it => it.name === nextAlias)) {
+                return "platform";
+            }
+            if (
+                otherPlugins.some(
+                    it =>
+                        it.displayName === nextAlias ||
+                        it.matchNames.includes(nextAlias),
+                )
+            ) {
+                return "alias";
+            }
+        }
+
+        pluginMeta.setPluginAlias(plugin.name, nextAlias);
+        /** 必须换数组引用，jotai 按 Object.is 判等；这样已挂载页面（插件列表、搜索页 tab 等）才会立刻用上新名字 */
+        this.setPlugins([...this.getPlugins()]);
+
+        return null;
+    }
+
+    /**
+     * 设置音源匹配名。
+     *
+     * 匹配名是存量曲目认出本插件的唯一依据，撞了就会串数据：
+     * 撞别家主键，那家的曲目会被解析到这个插件上；撞别家匹配名，两家的数据分不清归属。
+     * @param plugin - 目标插件
+     * @param names - 整组匹配名（调用方负责传入合并后的结果）
+     * @returns 撞名原因；null 表示已设置成功
+     */
+    setPluginMatchNames(plugin: Plugin, names: string[]): PluginAliasConflict | null {
+        const normalized = names.map(it => it.trim()).filter(Boolean);
+        const otherPlugins = this.getPlugins().filter(it => it !== plugin);
+        for (const name of normalized) {
+            if (name === plugin.name) {
+                continue;
+            }
+            if (otherPlugins.some(it => it.name === name)) {
+                return "platform";
+            }
+            if (
+                otherPlugins.some(
+                    it => it.matchNames.includes(name) || it.displayName === name,
+                )
+            ) {
+                return "alias";
+            }
+        }
+
+        pluginMeta.setPluginMatchNames(plugin.name, normalized);
+        /** 换数组引用让已挂载页面立刻重算；setPlugins 内部会作废平台解析缓存 */
+        this.setPlugins([...this.getPlugins()]);
+
+        return null;
+    }
+
+    getPluginMatchNames(plugin: Plugin) {
+        return [...pluginMeta.getPluginMatchNames(plugin.name)];
     }
 }
 

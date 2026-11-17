@@ -72,7 +72,7 @@ function _PluginItem(props: IPluginItemProps) {
                 showDialog("SimpleDialog", {
                     title: t("pluginSetting.pluginItem.options.uninstallPlugin"),
                     content: t("pluginSetting.pluginItem.options.uninstallPluginContent", {
-                        name: plugin.name,
+                        name: plugin.displayName,
                     }),
                     async onOk() {
                         try {
@@ -109,6 +109,63 @@ function _PluginItem(props: IPluginItemProps) {
             },
         },
         {
+            title: t("pluginSetting.pluginItem.options.renamePlugin"),
+            icon: "pencil-square",
+            show: true,
+            onPress() {
+                showPanel("SimpleInput", {
+                    title: t("pluginSetting.pluginItem.dialog.renamePlugin"),
+                    placeholder: plugin.name,
+                    hints: [t("pluginSetting.pluginItem.dialog.renameTip")],
+                    maxLength: 30,
+                    onOk(text, closePanel) {
+                        const conflict = pluginManager.setPluginDisplayName(plugin, text);
+                        if (conflict) {
+                            /** 撞名的话面板留着，让人改了再确定 */
+                            Toast.warn(
+                                t(
+                                    conflict === "platform"
+                                        ? "pluginSetting.pluginItem.dialog.aliasConflictPlatform"
+                                        : "pluginSetting.pluginItem.dialog.aliasConflictAlias",
+                                ),
+                            );
+                            return;
+                        }
+                        closePanel();
+                    },
+                });
+            },
+        },
+        {
+            title: t("pluginSetting.pluginItem.options.matchNames"),
+            icon: "link",
+            show: true,
+            onPress() {
+                showPanel("SetMatchNames", {
+                    initNames: pluginManager.getPluginMatchNames(plugin),
+                    onOk(names, closePanel) {
+                        const conflict = pluginManager.setPluginMatchNames(
+                            plugin,
+                            names,
+                        );
+                        if (conflict) {
+                            /** 撞名的话面板留着，让人改了再确定 */
+                            Toast.warn(
+                                t(
+                                    conflict === "platform"
+                                        ? "pluginSetting.pluginItem.dialog.aliasConflictPlatform"
+                                        : "pluginSetting.pluginItem.dialog.aliasConflictAlias",
+                                ),
+                            );
+                            return;
+                        }
+                        Toast.success(t("toast.settingSuccess"));
+                        closePanel();
+                    },
+                });
+            },
+        },
+        {
             title: t("pluginSetting.pluginItem.options.importMusic"),
             icon: "arrow-right-end-on-rectangle",
             onPress() {
@@ -131,7 +188,7 @@ function _PluginItem(props: IPluginItemProps) {
                                     showPanel("AddToMusicSheet", {
                                         musicItem: result,
                                         newSheetDefaultName: t("pluginSetting.pluginItem.options.importMusicToSheetName", {
-                                            name: plugin.name,
+                                            name: plugin.displayName,
                                         }),
                                     });
                                 },
@@ -212,12 +269,12 @@ function _PluginItem(props: IPluginItemProps) {
                     <ThemeText
                         numberOfLines={1}
                         fontSize="title">
-                        {plugin.name}
+                        {plugin.displayName}
                     </ThemeText>
                     {
                         plugin.instance.description?.length ? <IconButton name='question-mark-circle' sizeType='light' onPress={() => {
                             showDialog("MarkdownDialog", {
-                                title: plugin.name,
+                                title: plugin.displayName,
                                 markdownContent: plugin.instance.description!,
                             });
                         }} /> : null
@@ -312,7 +369,11 @@ function _PluginItem(props: IPluginItemProps) {
 }
 
 const PluginItem = memo(_PluginItem, (prev, curr) => {
-    return prev.plugin === curr.plugin;
+    /** 别名存在 meta 存储里，Plugin 实例引用不会变；只比引用的话重命名后卡片要退出重进才更新 */
+    return (
+        prev.plugin === curr.plugin &&
+        prev.plugin.displayName === curr.plugin.displayName
+    );
 });
 export default PluginItem;
 

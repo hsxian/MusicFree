@@ -58,6 +58,13 @@ export default function PluginList() {
             },
         },
         {
+            icon: "crosshair",
+            title: t("pluginSetting.menu.claimPlatforms"),
+            onPress() {
+                showPanel("ClaimPlatforms");
+            },
+        },
+        {
             icon: "trash-outline",
             title: t("pluginSetting.menu.uninstallAll"),
             onPress() {

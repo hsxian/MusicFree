@@ -171,8 +171,16 @@ export interface ILanguageData {
     "pluginSetting.pluginItem.options.uninstallPlugin": string; // 卸载插件
     "pluginSetting.pluginItem.options.uninstallPluginContent": string; // 确定卸载该插件吗？
     "pluginSetting.pluginItem.options.alternativePlugin": string; // 替代插件
+    "pluginSetting.pluginItem.options.renamePlugin": string; // 重命名
     "pluginSetting.pluginItem.alternativePlugin": string; // 该插件实际使用的插件
     "pluginSetting.pluginItem.dialog.setAlternativePluginTitle": string; // 设置替代插件
+    "pluginSetting.pluginItem.dialog.renamePlugin": string; // 重命名音源
+    "pluginSetting.pluginItem.dialog.renameTip": string; // 显示名只影响展示，不参与音源解析，留空恢复默认
+    "pluginSetting.pluginItem.dialog.matchNamesTitle": string; // 管理匹配名
+    "pluginSetting.pluginItem.dialog.matchNamesEmpty": string; // 匹配名列表为空时的说明
+    "pluginSetting.pluginItem.dialog.matchNamesPlaceholder": string; // 匹配名输入框提示
+    "pluginSetting.pluginItem.dialog.aliasConflictPlatform": string; // 别名与其他音源标识重复
+    "pluginSetting.pluginItem.dialog.aliasConflictAlias": string; // 别名已被其他音源占用
     "pluginSetting.pluginItem.dialog.setAlternativePluginTip": string; // 将使用替代插件解析此插件的音乐源提示
     "pluginSetting.pluginItem.options.importMusic": string; // 导入音乐
     "pluginSetting.pluginItem.options.importMusicPlaceHolder": string; // 导入音乐链接
@@ -183,12 +191,20 @@ export interface ILanguageData {
     "pluginSetting.pluginItem.options.importSheetPlaceHolder": string; // 导入歌单链接
     "pluginSetting.pluginItem.options.importSheetDialogContent": string; // 导入歌单对话框内容
     "pluginSetting.pluginItem.options.userVariables": string; // 用户变量
+    "pluginSetting.pluginItem.options.matchNames": string; // 管理匹配名
     "pluginSetting.pluginItem.versionHint": string; // 版本提示
     "pluginSetting.pluginItem.author": string; // 作者
     "pluginSetting.menu.subscriptionSetting": string; // 订阅设置
     "pluginSetting.menu.sort": string; // 排序
     "pluginSetting.menu.uninstallAll": string; // 卸载所有
     "pluginSetting.menu.uninstallAllContent": string; // 确定卸载所有插件吗？
+    "pluginSetting.menu.claimPlatforms": string; // 修复失效平台名
+    "pluginSetting.claimPlatforms.title": string; // 失效平台名
+    "pluginSetting.claimPlatforms.empty": string; // 没有失效平台名
+    "pluginSetting.claimPlatforms.hint": string; // 认领说明
+    "pluginSetting.claimPlatforms.count": string; // 出现次数
+    "pluginSetting.claimPlatforms.pickPlugin": string; // 选择认领的目标插件
+    "pluginSetting.claimPlatforms.success": string; // 认领成功
     "pluginSetting.menu.installPlugin": string; // 安装插件
     "pluginSetting.menu.installPluginDialogPlaceholder": string; // 插件安装对话框占位符
     "pluginSetting.menu.pluginInstallFailedDialogTitle": string; // 插件安装失败对话框标题

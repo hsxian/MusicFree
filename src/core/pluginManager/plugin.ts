@@ -863,6 +863,22 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
 export class Plugin {
     /** 插件名 */
     public name: string = "";
+    /**
+     * 展示名：用户起的别名优先，未设置则为插件原名。
+     * 只用于界面展示，既不写进曲目数据、也不参与平台解析（解析只认主键和 matchNames）。
+     * meta 存储的键（收藏、MediaExtra、播放缓存、用户变量、排序、禁用）一律仍挂 name。
+     * 传给插件函数的入参一律盖回 name——插件内部常按自己的 platform 分支。
+     */
+    get displayName(): string {
+        return _internalPluginMeta.getPluginAlias(this.name) || this.name;
+    }
+    /**
+     * 匹配名：历史曲目里出现的这些平台写法都算作本插件。
+     * 换插件（主键变了）之后，靠它把存量歌单认领回来。
+     */
+    get matchNames(): string[] {
+        return _internalPluginMeta.getPluginMatchNames(this.name);
+    }
     /** 插件的hash，作为唯一id */
     public hash: string = "";
     /** 插件状态：激活、关闭、错误 */

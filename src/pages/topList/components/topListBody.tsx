@@ -12,7 +12,7 @@ import i18n from "@/core/i18n";
 export default function TopListBody() {
     const routes = PluginManager.getSortedPluginsWithAbility("getTopLists").map(_ => ({
         key: _.hash,
-        title: _.name,
+        title: _.displayName,
     }));
     const [index, setIndex] = useState(0);
     const colors = useColors();

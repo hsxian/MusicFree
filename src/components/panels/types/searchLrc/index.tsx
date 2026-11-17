@@ -117,7 +117,7 @@ function LyricResultBodyWrapper() {
     const routes = useMemo(() => PluginManager.getSortedSearchablePlugins("lyric")?.map?.(
         _ => ({
             key: _.hash,
-            title: _.name,
+            title: _.displayName,
         }),
     ) ?? [], []);
 

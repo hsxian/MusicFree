@@ -79,7 +79,7 @@ export default function ImportMusicSheet() {
                                                 },
                                             });
                                         }}>
-                                        <ListItem.Content title={plugin.name} />
+                                        <ListItem.Content title={plugin.displayName} />
                                     </ListItem>
                                 )}
                             />

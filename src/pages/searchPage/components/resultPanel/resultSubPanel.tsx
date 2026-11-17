@@ -70,7 +70,7 @@ function ResultSubPanel(props: IResultSubPanelProps) {
     const routes = PluginManager.getSortedSearchablePlugins(props.tab).map(
         _ => ({
             key: _.hash,
-            title: _.name,
+            title: _.displayName,
         }),
     );
     const renderScene = useMemo(

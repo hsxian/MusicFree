@@ -7,6 +7,7 @@ import { isSameMediaItem } from "@/utils/mediaUtils";
 import minDistance from "@/utils/minDistance";
 import { atom, getDefaultStore, useAtomValue } from "jotai";
 import { Plugin } from "./pluginManager";
+import { isPluginOfPlatform } from "./pluginManager/platformMatch";
 
 import pathConst from "@/constants/pathConst";
 import LyricUtil from "@/native/lyricUtil";
@@ -353,8 +354,8 @@ class LyricManager implements IInjectable {
                 return null;
             }
 
-            if (plugin.name === musicItem.platform) {
-                // 如果插件是当前音乐的插件，则跳过
+            if (isPluginOfPlatform(plugin, musicItem.platform)) {
+                // 如果插件是当前音乐的插件，则跳过；曲目 platform 存的是别名时也要认得出
                 continue;
             }
 
