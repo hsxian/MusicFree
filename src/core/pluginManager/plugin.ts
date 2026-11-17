@@ -266,8 +266,34 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
             };
         }
         try {
+            const pluginInput = resetMediaItem(musicItem, this.plugin.name, true);
+            /**
+             * v1.9.x 那套聚合插件（qq / 酷我 / 酷狗 / 咪咕 / 网易云…）不从 platform 取通道列表，
+             * 而是读曲目上的私有字段 `_src`（只有插件自己 search 出来的曲目才带）。
+             * 历史/备份导入的曲目没有这个字段，插件会把可用通道判成空数组、直接返回空源，
+             * 表现为点歌秒失败、自动跳下一首、整张歌单雪崩。
+             * 补的时候有两个坑：插件内部要的是去平台前缀的裸 ID（netease_210049 → 210049），
+             * 且各平台认的键名不同（酷我要 rid、酷狗要 hash、咪咕要 contentId/copyrightId）。
+             */
+            if ((pluginInput as any)._src === undefined) {
+                const platform = this.plugin.name;
+                const itemId = String(musicItem.id ?? "");
+                const rawId = itemId.startsWith(platform + "_")
+                    ? itemId.slice(platform.length + 1)
+                    : itemId;
+                const srcInfo: Record<string, string> = { id: rawId };
+                for (const key of ["rid", "hash", "contentId", "copyrightId", "songmid", "mid", "mediaMid"]) {
+                    const value = (musicItem as any)[key];
+                    srcInfo[key] = value !== undefined && value !== null && value !== ""
+                        ? String(value)
+                        : rawId;
+                }
+                (pluginInput as any)._src = {
+                    [platform]: srcInfo,
+                };
+            }
             const { url, headers } = (await parserPlugin.instance.getMediaSource(
-                musicItem,
+                pluginInput,
                 quality,
             )) ?? { url: musicItem?.qualities?.[quality]?.url };
             if (!url) {
@@ -332,7 +358,7 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
         try {
             return (
                 this.plugin.instance.getMusicInfo(
-                    resetMediaItem(musicItem, undefined, true),
+                    resetMediaItem(musicItem, this.plugin.name, true),
                 ) ?? null
             );
         } catch (e: any) {
@@ -463,13 +489,13 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
         if (isSameMediaItem(originalMusicItem, musicItem)) {
             lrcSource =
                 (await this.plugin.instance
-                    ?.getLyric?.(resetMediaItem(musicItem, undefined, true))
+                    ?.getLyric?.(resetMediaItem(musicItem, this.plugin.name, true))
                     ?.catch(() => null)) || null;
         } else {
             lrcSource =
                 (await Plugin.pluginManager?.getByMedia(musicItem)
                     ?.instance?.getLyric?.(
-                        resetMediaItem(musicItem, undefined, true),
+                        resetMediaItem(musicItem, this.plugin.name, true),
                     )
                     ?.catch(() => null)) || null;
         }
@@ -558,17 +584,16 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
         if (!this.plugin.instance.getAlbumInfo) {
             return {
                 albumItem,
-                musicList: (albumItem?.musicList ?? []).map(
-                    resetMediaItem,
-                    this.plugin.name,
-                    true,
+                /** 原来把 name 当 map 的 thisArg 传，resetMediaItem 实际收到的是下标，platform 会被写成 0 */
+                musicList: (albumItem?.musicList ?? []).map(_ =>
+                    resetMediaItem(_, this.plugin.name, true),
                 ),
                 isEnd: true,
             };
         }
         try {
             const result = await this.plugin.instance.getAlbumInfo(
-                resetMediaItem(albumItem, undefined, true),
+                resetMediaItem(albumItem, this.plugin.name, true),
                 page,
             );
             if (!result) {
@@ -615,7 +640,7 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
         }
         try {
             const result = await this.plugin.instance?.getMusicSheetInfo?.(
-                resetMediaItem(sheetItem, undefined, true),
+                resetMediaItem(sheetItem, this.plugin.name, true),
                 page,
             );
             if (!result) {
@@ -661,7 +686,7 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
         }
         try {
             const result = await this.plugin.instance.getArtistWorks(
-                artistItem,
+                resetMediaItem(artistItem, this.plugin.name, true),
                 page,
                 type,
             );
