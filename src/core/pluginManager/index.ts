@@ -10,8 +10,7 @@ import {
     IPluginManager,
 } from "@/types/core/pluginManager";
 import { removeAllMediaExtra } from "@/utils/mediaExtra";
-import axios from "axios";
-import { compare } from "compare-versions";
+import { compare, validate } from "compare-versions";
 import EventEmitter from "eventemitter3";
 import { readAsStringAsync } from "expo-file-system";
 import { atom, getDefaultStore, useAtomValue } from "jotai";
@@ -28,6 +27,7 @@ import { safeParse } from "@/utils/jsonUtil";
 import { IInjectable } from "@/types/infra";
 import { IAppConfig } from "@/types/core/config";
 import delay from "@/utils/delay";
+import { fetchPluginText } from "./fetchText";
 
 const pluginsAtom = atom<Plugin[]>([]);
 const pluginCacheStore = getOrCreateMMKV("plugin.cache");
@@ -274,15 +274,7 @@ class PluginManager implements IPluginManager, IInjectable {
         config?: IInstallPluginConfig,
     ): Promise<IInstallPluginResult> {
         try {
-            const funcCode = (
-                await axios.get(url, {
-                    headers: {
-                        "Cache-Control": "no-cache",
-                        Pragma: "no-cache",
-                        Expires: "0",
-                    },
-                })
-            ).data;
+            const funcCode = await fetchPluginText(url);
             if (funcCode) {
                 const plugin = new Plugin(funcCode, "");
                 let allPlugins = [...this.getPlugins()];
@@ -302,25 +294,30 @@ class PluginManager implements IPluginManager, IInjectable {
                 const oldVersionPlugin = allPlugins.find(
                     p => p.name === plugin.name,
                 );
-                if (oldVersionPlugin && !config?.notCheckVersion) {
-                    if (
-                        compare(
-                            oldVersionPlugin.instance.version ?? "",
-                            plugin.instance.version ?? "",
-                            ">",
-                        )
-                    ) {
-                        return {
-                            success: false,
-                            message: "已安装更新版本的插件",
-                            pluginName: plugin.name,
-                            pluginHash: plugin.hash,
-                            pluginUrl: url,
-                        };
-                    }
+                const oldVersion = oldVersionPlugin?.instance.version ?? "";
+                const newVersion = plugin.instance.version ?? "";
+                if (
+                    oldVersionPlugin &&
+                    !config?.notCheckVersion &&
+                    /** 任一侧不是合法 semver 就不比（compare 对空串会抛 Invalid argument，
+                     * 本地插件多为本地文件导入、常常没有 version 字段，抛出去会导致永远无法通过订阅更新） */
+                    validate(oldVersion) &&
+                    validate(newVersion) &&
+                    compare(oldVersion, newVersion, ">")
+                ) {
+                    return {
+                        success: false,
+                        message: "已安装更新版本的插件",
+                        pluginName: plugin.name,
+                        pluginHash: plugin.hash,
+                        pluginUrl: url,
+                    };
                 }
 
-                if (plugin.hash !== "") {
+                if (
+                    plugin.hash !== "" &&
+                    plugin.state === PluginState.Mounted
+                ) {
                     const fn = nanoid();
                     const _pluginPath = `${pathConst.pluginPath}${fn}.js`;
                     await writeFile(_pluginPath, funcCode, "utf8");
@@ -358,7 +355,7 @@ class PluginManager implements IPluginManager, IInjectable {
             devLog("error", "URL安装插件失败", e, e?.message);
             errorLog("URL安装插件失败", e);
 
-            if (e?.response?.statusCode === 404) {
+            if (e?.response?.status === 404) {
                 return {
                     success: false,
                     message: "插件不存在，请联系插件作者",

@@ -175,6 +175,7 @@
     "toast.partialPluginUpdateFailed": "部分外掛更新失敗",
     "toast.noSubscription": "暫無訂閱",
     "toast.subscriptionInvalid": "訂閱無效",
+    "toast.subscriptionContentInvalid": "訂閱內容為空或格式不支援",
     "toast.subscriptionHaveToEndWithJs": "訂閱地址必須以.js或.json結尾",
     "toast.unknownError": "未知錯誤，請稍後再試: {reason}",
     "themeSettings.displayStyle": "顯示樣式",

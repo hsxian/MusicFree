@@ -175,6 +175,7 @@
     "toast.partialPluginUpdateFailed": "Some plugins update failed",
     "toast.noSubscription": "No subscription",
     "toast.subscriptionInvalid": "Invalid subscription",
+    "toast.subscriptionContentInvalid": "Subscription is empty or unsupported",
     "toast.subscriptionHaveToEndWithJs": "Subscription URL must end with .js or .json",
     "toast.unknownError": "Unknown error, please try again later: {reason}",
     "themeSettings.displayStyle": "Display Style",

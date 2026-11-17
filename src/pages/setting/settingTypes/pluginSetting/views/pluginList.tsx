@@ -5,10 +5,15 @@ import * as DocumentPicker from "expo-document-picker";
 import Loading from "@/components/base/loading";
 
 import PluginManager, { useSortedPlugins } from "@/core/pluginManager";
-import { trace } from "@/utils/log";
+import { devLog, trace } from "@/utils/log";
 
 import Toast from "@/utils/toast";
-import axios from "axios";
+import { fetchPluginText } from "@/core/pluginManager/fetchText";
+import {
+    parseSubscribeEntries,
+    planSubscribeEntries,
+    type ISubscribeEntry,
+} from "@/core/pluginManager/subscription";
 import { useNavigation } from "@react-navigation/native";
 import Config from "@/core/appConfig";
 import Empty from "@/components/base/empty";
@@ -20,7 +25,8 @@ import Fab from "@/components/base/fab";
 import PluginItem from "../components/pluginItem";
 import { IIconName } from "@/components/base/icon.tsx";
 import { IInstallPluginResult } from "@/types/core/pluginManager";
-import { useI18N } from "@/core/i18n";
+import i18n, { useI18N } from "@/core/i18n";
+import { safeParse } from "@/utils/jsonUtil";
 
 interface IOption {
     icon: IIconName;
@@ -112,39 +118,17 @@ export default function PluginList() {
                 setLoading(true);
                 closePanel();
 
-                const result = await installPluginFromUrl(text.trim());
-
-                // 检查是否全部安装成功
-                const successResults: IInstallPluginResult[] = [];
-                const failResults: IInstallPluginResult[] = [];
-                for (let i = 0; i < result.length; ++i) {
-                    if (result[i].success) {
-                        successResults.push(result[i]);
-                    } else {
-                        failResults.push(result[i]);
-                    }
-                }
-
-                if (!failResults.length) {
-                    Toast.success(t("toast.installPluginSuccess"));
-                } else {
-                    Toast.warn(successResults.length ? t("toast.partialPluginInstallFailed") : t("toast.allPluginInstallFailed"), {
-                        "type": "warn",
-                        "actionText": t("common.view"),
-                        "onActionClick": () => {
-                            showDialog("SimpleDialog", {
-                                title: t("pluginSetting.menu.pluginInstallFailedDialogTitle"),
-                                content: t("pluginSetting.pluginInstallFailedDialogContent", {
-                                    detail: failResults.map(it => (it.pluginUrl ?? "") + "\n" + t("pluginSetting.failReason", {
-                                        reason: it.message ?? "",
-                                    })).join("\n-----\n"),
-                                }),
-                            });
-                        },
-                    });
-                }
-
-
+                const results = await installFromInput(text.trim());
+                reportInstallResults(results, {
+                    success: t("toast.installPluginSuccess"),
+                    partialFailed: t("toast.partialPluginInstallFailed"),
+                    allFailed: t("toast.allPluginInstallFailed"),
+                    dialogTitle: t("pluginSetting.menu.pluginInstallFailedDialogTitle"),
+                    dialogContent: detail =>
+                        t("pluginSetting.pluginInstallFailedDialogContent", {
+                            detail,
+                        }),
+                });
                 setLoading(false);
             },
         });
@@ -152,66 +136,32 @@ export default function PluginList() {
 
     async function onSubscribeClick() {
         const urls = Config.getConfig("plugin.subscribeUrl");
-        if (!urls) {
-            Toast.warn(t("toast.noSubscription"));
+        const inputs = parseSubscribeInputs(urls);
+        if (!inputs.length) {
+            Toast.warn(
+                urls?.trim()
+                    ? t("toast.subscriptionInvalid")
+                    : t("toast.noSubscription"),
+            );
+            return;
         }
         setLoading(true);
 
-        const successResults: IInstallPluginResult[] = [];
-        const failResults: IInstallPluginResult[] = [];
-
-        try {
-            const urlItems = JSON.parse(urls!);
-            if (Array.isArray(urlItems)) {
-                for (let i = 0; i < urlItems.length; ++i) {
-                    const result = await installPluginFromUrl(urlItems[i].url);
-                    if (result[0]) {
-                        if (result[0].success) {
-                            successResults.push(result[0]);
-                        } else {
-                            failResults.push(result[0]);
-                        }
-                    }
-                }
-            } else {
-                throw new Error();
-            }
-
-            if (!failResults.length) {
-                Toast.success(t("toast.installPluginSuccess"));
-            } else {
-                Toast.warn((successResults.length ? t("toast.partialPluginInstallFailed") : t("toast.allPluginInstallFailed")), {
-                    "type": "warn",
-                    "actionText": t("common.view"),
-                    "onActionClick": () => {
-                        showDialog("SimpleDialog", {
-                            title: t("pluginSetting.menu.pluginInstallFailedDialogTitle"),
-                            content: t("pluginSetting.pluginInstallFailedDialogContent", {
-                                detail: failResults.map(it => (it.pluginUrl ?? "") + "\n" + t("pluginSetting.failReason", {
-                                    reason: it.message ?? "",
-                                })).join("\n-----\n"),
-                            }),
-                        });
-                    },
-                });
-            }
-
-        } catch {
-            if (urls?.length) {
-                const result = await installPluginFromUrl(urls);
-                if (result[0]) {
-                    if (result[0].success) {
-                        Toast.success(t("toast.installPluginSuccess"));
-                    } else {
-                        Toast.warn(t("toast.partialPluginInstallFailedWithReason", {
-                            reason: result[0].message ?? "",
-                        }));
-                    }
-                } else {
-                    Toast.warn(t("toast.subscriptionInvalid"));
-                }
-            }
+        const results: IInstallPluginResult[] = [];
+        for (let i = 0; i < inputs.length; ++i) {
+            results.push(...(await installFromInput(inputs[i])));
         }
+
+        reportInstallResults(results, {
+            success: t("toast.installPluginSuccess"),
+            partialFailed: t("toast.partialPluginInstallFailed"),
+            allFailed: t("toast.allPluginInstallFailed"),
+            dialogTitle: t("pluginSetting.menu.pluginInstallFailedDialogTitle"),
+            dialogContent: detail =>
+                t("pluginSetting.pluginInstallFailedDialogContent", {
+                    detail,
+                }),
+        });
         setLoading(false);
     }
 
@@ -219,48 +169,24 @@ export default function PluginList() {
         const plugins = PluginManager.getEnabledPlugins();
         setLoading(true);
 
-        const successResults: IInstallPluginResult[] = [];
-        const failResults: IInstallPluginResult[] = [];
-
-        try {
-            for (let i = 0; i < plugins.length; ++i) {
-                const srcUrl = plugins[i].instance.srcUrl;
-                if (srcUrl) {
-                    const result = await installPluginFromUrl(srcUrl);
-                    if (result[0]) {
-                        if (result[0].success) {
-                            successResults.push(result[0]);
-                        } else {
-                            failResults.push(result[0]);
-                        }
-                    }
-                }
+        const results: IInstallPluginResult[] = [];
+        for (let i = 0; i < plugins.length; ++i) {
+            const srcUrl = plugins[i].instance.srcUrl;
+            if (srcUrl) {
+                results.push(...(await installFromInput(srcUrl)));
             }
-
-            if (!failResults.length) {
-                Toast.success(t("toast.updatePluginSuccess"));
-            } else {
-                Toast.warn((successResults.length ? t("toast.partialPluginUpdateFailed") : t("toast.allPluginUpdateFailed")), {
-                    "type": "warn",
-                    "actionText": t("common.view"),
-                    "onActionClick": () => {
-                        showDialog("SimpleDialog", {
-                            title: t("pluginSetting.menu.pluginUpdateFailedDialogTitle"),
-                            content: t("pluginSetting.pluginUpdateFailedDialogContent", {
-                                detail: failResults.map(it => (it.pluginUrl ?? "") + "\n" + t("pluginSetting.failReason", {
-                                    reason: it.message ?? "",
-                                })).join("\n-----\n"),
-                            }),
-                        });
-                    },
-                });
-            }
-
-        } catch (e: any) {
-            Toast.warn(t("toast.unknownError", {
-                reason: e?.message ?? e,
-            }));
         }
+
+        reportInstallResults(results, {
+            success: t("toast.updatePluginSuccess"),
+            partialFailed: t("toast.partialPluginUpdateFailed"),
+            allFailed: t("toast.allPluginUpdateFailed"),
+            dialogTitle: t("pluginSetting.menu.pluginUpdateFailedDialogTitle"),
+            dialogContent: detail =>
+                t("pluginSetting.pluginUpdateFailedDialogContent", {
+                    detail,
+                }),
+        });
         setLoading(false);
     }
 
@@ -340,42 +266,117 @@ const style = StyleSheet.create({
 
 
 
-async function installPluginFromUrl(text: string): Promise<IInstallPluginResult[]> {
-    try {
-        let urls: string[] = [];
-        const inputUrl = text.trim();
-        if (text.endsWith(".json")) {
-            const jsonFile = (
-                await axios.get(inputUrl, {
-                    headers: {
-                        "Cache-Control": "no-cache",
-                        Pragma: "no-cache",
-                        Expires: "0",
-                    },
-                })
-            ).data;
-            /**
-             * {
-             *     plugins: [{
-             *          version: xxx,
-             *          url: xxx
-             *      }]
-             * }
-             */
-            urls = (jsonFile?.plugins ?? []).map((_: any) => _.url);
-        } else {
-            urls = [inputUrl];
-        }
-        return await Promise.all(
-            urls.map(url =>
-                PluginManager.installPluginFromUrl(url, {
-                    notCheckVersion: Config.getConfig(
-                        "basic.notCheckPluginVersion",
-                    ),
-                }),
-            ),
-        );
-    } catch (e: any) {
-        return [{ success: false, message: e?.message, pluginUrl: text }];
+/** 订阅地址存的是 [{name,url}] 的 JSON；解析不出数组时整串按单个地址处理（旧数据） */
+function parseSubscribeInputs(raw?: string): string[] {
+    const text = raw?.trim() ?? "";
+    if (!text) {
+        return [];
     }
+    const parsed = safeParse<Array<{ url?: string }>>(text);
+    if (!Array.isArray(parsed)) {
+        return [text];
+    }
+    return parsed.map(it => it?.url?.trim() ?? "").filter(Boolean);
+}
+
+/**
+ * 安装一个订阅地址或单个插件地址。
+ * .json 视为订阅：先解析条目，本地已同版本的直接跳过，避免几百 KB 的重复下载。
+ * 返回逐条结果，跳过项不产生结果（既不算成功也不算失败）。
+ */
+async function installFromInput(text: string): Promise<IInstallPluginResult[]> {
+    const inputUrl = text.trim();
+    const notCheckVersion = !!Config.getConfig("basic.notCheckPluginVersion");
+    if (!inputUrl.endsWith(".json")) {
+        return [
+            await PluginManager.installPluginFromUrl(inputUrl, {
+                notCheckVersion,
+            }),
+        ];
+    }
+
+    let entries: ISubscribeEntry[];
+    try {
+        entries = parseSubscribeEntries(await fetchPluginText(inputUrl), inputUrl);
+    } catch (e: any) {
+        return [{ success: false, message: e?.message ?? "", pluginUrl: inputUrl }];
+    }
+    if (!entries.length) {
+        return [
+            {
+                success: false,
+                message: i18n.t("toast.subscriptionContentInvalid"),
+                pluginUrl: inputUrl,
+            },
+        ];
+    }
+
+    const actions = planSubscribeEntries(
+        entries,
+        PluginManager.getSortedPlugins().map(plugin => ({
+            name: plugin.name,
+            version: plugin.instance.version,
+        })),
+    );
+
+    const results: IInstallPluginResult[] = [];
+    /** 串行而非并发：几个几百 KB 的插件同时下会互相抢带宽，一起撞上超时 */
+    for (const action of actions) {
+        if (action.action === "skip") {
+            devLog("info", "订阅跳过同版本插件:", action.name);
+            continue;
+        }
+        results.push(
+            await PluginManager.installPluginFromUrl(action.url, {
+                notCheckVersion,
+            }),
+        );
+    }
+    return results;
+}
+
+interface IInstallReportTexts {
+    success: string;
+    partialFailed: string;
+    allFailed: string;
+    dialogTitle: string;
+    dialogContent: (detail: string) => string;
+}
+
+/** 有任何一条失败就不能报整体成功；失败明细原样带上 URL 与原因（超时/404/无法解析） */
+function reportInstallResults(
+    results: IInstallPluginResult[],
+    texts: IInstallReportTexts,
+) {
+    const failResults = results.filter(it => !it.success);
+    if (!failResults.length) {
+        Toast.success(texts.success);
+        return;
+    }
+    Toast.warn(
+        failResults.length === results.length
+            ? texts.allFailed
+            : texts.partialFailed,
+        {
+            type: "warn",
+            actionText: i18n.t("common.view"),
+            onActionClick: () => {
+                showDialog("SimpleDialog", {
+                    title: texts.dialogTitle,
+                    content: texts.dialogContent(
+                        failResults
+                            .map(
+                                it =>
+                                    (it.pluginUrl ?? "") +
+                                    "\n" +
+                                    i18n.t("pluginSetting.failReason", {
+                                        reason: it.message ?? "",
+                                    }),
+                            )
+                            .join("\n-----\n"),
+                    ),
+                });
+            },
+        },
+    );
 }

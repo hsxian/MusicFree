@@ -223,6 +223,7 @@ export interface ILanguageData {
     "toast.partialPluginUpdateFailed": string; // 部分插件更新失败
     "toast.noSubscription": string; // 没有订阅
     "toast.subscriptionInvalid": string; // 订阅无效
+    "toast.subscriptionContentInvalid": string; // 订阅内容为空或格式不支持
     "toast.subscriptionHaveToEndWithJs": string; // 订阅必须以.js结尾
     "toast.unknownError": string; // 未知错误
 
