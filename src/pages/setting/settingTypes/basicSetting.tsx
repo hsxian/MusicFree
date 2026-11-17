@@ -260,7 +260,7 @@ export default function BasicSetting() {
                 createSwitch(
                     t("basicSettings.lazyLoadPlugin"),
                     "basic.lazyLoadPlugin",
-                    lazyLoadPlugin ?? false,
+                    lazyLoadPlugin ?? true,
                 ),
             ],
         },

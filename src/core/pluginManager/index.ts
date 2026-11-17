@@ -111,10 +111,12 @@ class PluginManager implements IPluginManager, IInjectable {
                     // 如果存在缓存信息
                     let plugin: Plugin;
                     let isLazyLoad = false;
+                    // 默认懒加载：编译插件很贵（单个数百 KB 混淆 JS，6 个插件能拖慢启动 6s+），
+                    // 有缓存就先只填元信息，真正用到时再编译。显式关掉才会在启动时全量编译。
                     if (
                         this.appConfigService.getConfig(
                             "basic.lazyLoadPlugin",
-                        ) &&
+                        ) !== false &&
                         pluginCacheStore.contains(pluginFileItem.path)
                     ) {
                         isLazyLoad = true;
