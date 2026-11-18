@@ -79,6 +79,10 @@ let pendingDownload: {
     task: IDownloadTask;
 } | null = null;
 
+/** 下载停滞判定：Doze/假死网络不进账也不报错，只能自己盯（见 cacheMusic 里的看门狗） */
+const DOWNLOAD_STALL_TIMEOUT = 10_000;
+const DOWNLOAD_MAX_WAIT = 180_000;
+
 function cacheKey(mediaItem: ICommon.IMediaBase, quality: IMusic.IQualityKey) {
     return `${mediaItem.platform}@${mediaItem.id}@${quality}`;
 }
@@ -244,10 +248,20 @@ export async function cacheMusic(
     }
     Toast.warn("缓存中，稍后播放");
     const { targetPath, tmpPath } = cachePathOf(musicItem, quality, url);
+    let lastBytes = -1;
+    let lastProgressAt = Date.now();
+    const startedAt = Date.now();
     const { promise } = downloadFile({
         fromUrl: url,
         toFile: tmpPath,
         headers: source?.headers,
+        progressInterval: 2000,
+        progressCallback: ({ bytesWritten }) => {
+            if (bytesWritten !== lastBytes) {
+                lastBytes = bytesWritten;
+                lastProgressAt = Date.now();
+            }
+        },
     });
     const task = promise as IDownloadTask;
     const result = finishDownload(
@@ -258,8 +272,35 @@ export async function cacheMusic(
         tmpPath,
         task,
     );
-    pendingDownload = { key, promise: result, task };
-    return result;
+    /**
+     * 「先下完再播」让这里成了出声前的关键等待。Doze 掐网不给错，
+     * socket 挂着、promise 永不落定，播放就永远停在这——熄屏后不自动播放、
+     * 蓝牙按键一跳就又能动，卡的是同一条链。盯住字节数：10 秒不进账或
+     * 总计超 3 分钟就取消下载，cacheMusic 返回 null 回退远程源。
+     */
+    const guarded: Promise<{ url: string } | null> = new Promise(resolve => {
+        const timer = setInterval(() => {
+            const now = Date.now();
+            if (
+                now - lastProgressAt > DOWNLOAD_STALL_TIMEOUT ||
+                now - startedAt > DOWNLOAD_MAX_WAIT
+            ) {
+                task.cancel();
+            }
+        }, 1000);
+        result.then(
+            r => {
+                clearInterval(timer);
+                resolve(r);
+            },
+            () => {
+                clearInterval(timer);
+                resolve(null);
+            },
+        );
+    });
+    pendingDownload = { key, promise: guarded, task };
+    return guarded;
 }
 
 /** 清空索引；缓存文件由 clearCache("music") 负责，两者必须一起清，否则残留索引会让缓存误判为已完成 */
