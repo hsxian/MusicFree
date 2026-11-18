@@ -21,6 +21,8 @@ interface IMediaExtraProperties {
     lyricOffset?: number;
     /** 关联歌词 */
     associatedLrc?: ICommon.IMediaBase
+    /** 插件私有的取源字段 _src（老曲目没有，取源时补回来存这里免重搜） */
+    src?: Record<string, any>;
 }
 
 

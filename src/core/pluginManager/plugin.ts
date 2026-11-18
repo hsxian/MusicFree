@@ -269,14 +269,29 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
             /**
              * 入参盖主键：插件内部常按自己的 platform 分支，曲目里可能是别名或旧写法。
              * `_src` 只由插件自己的 search 产出，键是通道名（qq / kuwo / kugou…）、值是
-             * {mid, mediaMid, vid, vip} 这类平台私有字段，外面猜不出来——缺了就只能失败，
-             * 拿 id 硬造一份会被插件整份忽略（键名对不上），反而掩盖真实失败原因。
+             * {mid, mediaMid, vid, vip} 这类平台私有字段，外面猜不出来，所以只能让插件自己搜一次补回来。
              */
             const pluginInput = resetMediaItem(musicItem, this.plugin.name, true);
-            const { url, headers } = (await parserPlugin.instance.getMediaSource(
-                pluginInput,
-                quality,
-            )) ?? { url: musicItem?.qualities?.[quality]?.url };
+            const knownSrc =
+                (pluginInput as any)._src ??
+                getMediaExtraProperty(musicItem, "src");
+            if (knownSrc) {
+                (pluginInput as any)._src = knownSrc;
+            }
+            const fetchSource = () =>
+                parserPlugin.instance.getMediaSource!(pluginInput, quality);
+            let source = (await fetchSource()) ?? null;
+            if (!source?.url && !(pluginInput as any)._src) {
+                /** 老曲目（导入/备份）没有 `_src`，先照常试一次，失败再补，补到就存下来免下次重搜 */
+                const src = await this.recoverSrc(pluginInput);
+                if (src) {
+                    (pluginInput as any)._src = src;
+                    patchMediaExtra(musicItem, { src });
+                    source = (await fetchSource()) ?? null;
+                }
+            }
+            const url = source?.url ?? musicItem?.qualities?.[quality]?.url;
+            const headers = source?.headers;
             if (!url) {
                 throw new Error("NOT RETRY");
             }
@@ -324,6 +339,50 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
             }
             errorLog("获取真实源失败", e?.message);
             devLog("error", "获取真实源失败", e, e?.message);
+            return null;
+        }
+    }
+
+    /**
+     * 用插件自己的 search 把 `_src` 找回来（只给老曲目用）。
+     *
+     * `_src` 的值是各平台私有字段（qq 要 mid + mediaMid，酷我要 rid，酷狗要 hash…），
+     * 外面拼不出来，只能搜一次拿插件自己产出的那份。命中口径从严：
+     * 先按去平台前缀的 id 全等（qq_123 → 123），再退到标题 + 歌手全等；
+     * 都不中就放弃，宁可失败也不能拿同名不同版本凑数。
+     */
+    private async recoverSrc(
+        musicItem: IMusic.IMusicItemBase,
+    ): Promise<Record<string, any> | null> {
+        const keyword = [musicItem.title, musicItem.artist]
+            .filter(Boolean)
+            .join(" ");
+        if (!keyword || !musicItem.id) {
+            return null;
+        }
+        const channel = this.plugin.instance.platform ?? "";
+        const bareId = (id?: string) => {
+            const value = String(id ?? "");
+            return channel && value.startsWith(channel + "_")
+                ? value.slice(channel.length + 1)
+                : value;
+        };
+        try {
+            const result = await this.plugin.instance.search?.(
+                keyword,
+                1,
+                "music",
+            );
+            const list = (result?.data ?? []) as IMusic.IMusicItemBase[];
+            const hit =
+                list.find(_ => bareId(_.id) === bareId(musicItem.id)) ??
+                list.find(
+                    _ =>
+                        _.title === musicItem.title &&
+                        _.artist === musicItem.artist,
+                );
+            return (hit as any)?._src ?? null;
+        } catch {
             return null;
         }
     }
