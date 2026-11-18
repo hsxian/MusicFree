@@ -29,16 +29,36 @@ const store = getOrCreateMMKV("cache.PlayCache", true);
  * 进程只是普通后台进程：熄屏后进 Doze，CPU 休眠、网络被掐，下载就停住不动。
  * 原生侧起一个 dataSync 前台服务 + wake lock 把这段时间顶住，下完立刻停。
  */
-const keepAlive: { start?: () => void; stop?: () => void } | null =
-    Platform.OS === "android" ? NativeModules.CacheKeepAlive : null;
+const keepAlive: {
+    start?: () => Promise<boolean>;
+    stop?: () => void;
+} | null = Platform.OS === "android" ? NativeModules.CacheKeepAlive : null;
 
 /** 同一时刻可能有新旧两个下载在收尾，用计数避免先把新下载的保活关掉 */
 let keepAliveRefCount = 0;
+/** 起过一次就记住结果：后台启动被系统拒绝时，后续每首缓存都会问一遍，没必要反复试 */
+let keepAliveUsable = true;
 
-function acquireKeepAlive() {
-    if (keepAliveRefCount++ === 0) {
-        keepAlive?.start?.();
+/**
+ * 拿到保活；返回 false 表示这个环境根本顶不住后台下载（模块缺失、
+ * Android 12+ 的后台启动限制、厂商省电策略），调用方应退化成直接播放远程源。
+ */
+async function acquireKeepAlive(): Promise<boolean> {
+    if (!keepAliveUsable) {
+        return false;
     }
+    if (keepAliveRefCount++ === 0) {
+        try {
+            keepAliveUsable = (await keepAlive?.start?.()) ?? false;
+        } catch (e) {
+            keepAliveUsable = false;
+        }
+        if (!keepAliveUsable) {
+            keepAliveRefCount = 0;
+            return false;
+        }
+    }
+    return keepAliveUsable;
 }
 
 function releaseKeepAlive() {
@@ -216,10 +236,14 @@ export async function cacheMusic(
     }
     pendingDownload?.task.cancel();
 
-    Toast.warn("缓存中，稍后播放");
     await mkdirR(pathConst.playCachePath);
+    if (!(await acquireKeepAlive())) {
+        /** 顶不住后台下载（模块缺失 / 后台启动被拒 / 厂商省电策略），宁可直接播远程源 */
+        Toast.warn("当前环境不支持后台缓存，直接播放");
+        return null;
+    }
+    Toast.warn("缓存中，稍后播放");
     const { targetPath, tmpPath } = cachePathOf(musicItem, quality, url);
-    acquireKeepAlive();
     const { promise } = downloadFile({
         fromUrl: url,
         toFile: tmpPath,
