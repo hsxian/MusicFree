@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 整曲缓存下载期间的保活服务（Android 14+ 需要声明 dataSync 类型） -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
       android:name=".MainApplication"
@@ -163,5 +165,11 @@
               <data android:pathPattern=".*\\.JS" />
           </intent-filter>
       </activity>
+
+      <service
+        android:name=".cacheKeepAlive.CacheKeepAliveService"
+        android:exported="false"
+        android:foregroundServiceType="dataSync"
+        android:stopWithTask="false" />
     </application>
 </manifest>

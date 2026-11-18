@@ -16,10 +16,36 @@ import getOrCreateMMKV from "@/utils/getOrCreateMMKV";
 import { safeParse } from "@/utils/jsonUtil";
 import { errorLog } from "@/utils/log";
 import network from "@/utils/network";
+import { NativeModules, Platform } from "react-native";
 import { copyFile, downloadFile, exists, unlink } from "react-native-fs";
 import { pickEvictionTargets, type ICacheEntry } from "./playCacheEviction";
 
 const store = getOrCreateMMKV("cache.PlayCache", true);
+
+/**
+ * 下载期间的前台保活。
+ *
+ * 缓存是「先下完再播」，下载时没有任何播放动作，track-player 的前台服务还没起来，
+ * 进程只是普通后台进程：熄屏后进 Doze，CPU 休眠、网络被掐，下载就停住不动。
+ * 原生侧起一个 dataSync 前台服务 + wake lock 把这段时间顶住，下完立刻停。
+ */
+const keepAlive: { start?: () => void; stop?: () => void } | null =
+    Platform.OS === "android" ? NativeModules.CacheKeepAlive : null;
+
+/** 同一时刻可能有新旧两个下载在收尾，用计数避免先把新下载的保活关掉 */
+let keepAliveRefCount = 0;
+
+function acquireKeepAlive() {
+    if (keepAliveRefCount++ === 0) {
+        keepAlive?.start?.();
+    }
+}
+
+function releaseKeepAlive() {
+    if (keepAliveRefCount > 0 && --keepAliveRefCount === 0) {
+        keepAlive?.stop?.();
+    }
+}
 
 /** RNFS 运行时会给 promise 挂 cancel，类型声明里没有 */
 type IDownloadTask = ReturnType<typeof downloadFile>["promise"] & {
@@ -156,6 +182,7 @@ async function finishDownload(
         if (pendingDownload?.task === task) {
             pendingDownload = null;
         }
+        releaseKeepAlive();
         await unlink(tmpPath).catch(emptyFunction);
     }
 }
@@ -192,6 +219,7 @@ export async function cacheMusic(
     Toast.warn("缓存中，稍后播放");
     await mkdirR(pathConst.playCachePath);
     const { targetPath, tmpPath } = cachePathOf(musicItem, quality, url);
+    acquireKeepAlive();
     const { promise } = downloadFile({
         fromUrl: url,
         toFile: tmpPath,
