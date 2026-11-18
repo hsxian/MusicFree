@@ -266,32 +266,13 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
             };
         }
         try {
-            const pluginInput = resetMediaItem(musicItem, this.plugin.name, true);
             /**
-             * v1.9.x 那套聚合插件（qq / 酷我 / 酷狗 / 咪咕 / 网易云…）不从 platform 取通道列表，
-             * 而是读曲目上的私有字段 `_src`（只有插件自己 search 出来的曲目才带）。
-             * 历史/备份导入的曲目没有这个字段，插件会把可用通道判成空数组、直接返回空源，
-             * 表现为点歌秒失败、自动跳下一首、整张歌单雪崩。
-             * 补的时候有两个坑：插件内部要的是去平台前缀的裸 ID（netease_210049 → 210049），
-             * 且各平台认的键名不同（酷我要 rid、酷狗要 hash、咪咕要 contentId/copyrightId）。
+             * 入参盖主键：插件内部常按自己的 platform 分支，曲目里可能是别名或旧写法。
+             * `_src` 只由插件自己的 search 产出，键是通道名（qq / kuwo / kugou…）、值是
+             * {mid, mediaMid, vid, vip} 这类平台私有字段，外面猜不出来——缺了就只能失败，
+             * 拿 id 硬造一份会被插件整份忽略（键名对不上），反而掩盖真实失败原因。
              */
-            if ((pluginInput as any)._src === undefined) {
-                const platform = this.plugin.name;
-                const itemId = String(musicItem.id ?? "");
-                const rawId = itemId.startsWith(platform + "_")
-                    ? itemId.slice(platform.length + 1)
-                    : itemId;
-                const srcInfo: Record<string, string> = { id: rawId };
-                for (const key of ["rid", "hash", "contentId", "copyrightId", "songmid", "mid", "mediaMid"]) {
-                    const value = (musicItem as any)[key];
-                    srcInfo[key] = value !== undefined && value !== null && value !== ""
-                        ? String(value)
-                        : rawId;
-                }
-                (pluginInput as any)._src = {
-                    [platform]: srcInfo,
-                };
-            }
+            const pluginInput = resetMediaItem(musicItem, this.plugin.name, true);
             const { url, headers } = (await parserPlugin.instance.getMediaSource(
                 pluginInput,
                 quality,

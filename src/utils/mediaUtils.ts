@@ -55,7 +55,7 @@ export function isSameMediaItem(
     a: ICommon.IMediaBase | null | undefined,
     b: ICommon.IMediaBase | null | undefined,
 ) {
-    // eslint-disable-next-line eqeqeq
+     
     return !!(
         a &&
         b &&
