@@ -281,10 +281,13 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
             const fetchSource = () =>
                 parserPlugin.instance.getMediaSource!(pluginInput, quality);
             let source = (await fetchSource()) ?? null;
-            if (!source?.url && !(pluginInput as any)._src) {
-                /** 老曲目（导入/备份）没有 `_src`，先照常试一次，失败再补，补到就存下来免下次重搜 */
+            if (!source?.url) {
+                /**
+                 * 取不到源时补一次 `_src`：老曲目（导入/备份）根本没有，或者留着换插件前那份、
+                 * 通道键对不上，插件都会直接返回空。补到就存起来，下次不用再补。
+                 */
                 const src = await this.recoverSrc(pluginInput);
-                if (src) {
+                if (src && JSON.stringify(src) !== JSON.stringify(knownSrc)) {
                     (pluginInput as any)._src = src;
                     patchMediaExtra(musicItem, { src });
                     source = (await fetchSource()) ?? null;
@@ -344,23 +347,37 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
     }
 
     /**
-     * 用插件自己的 search 把 `_src` 找回来（只给老曲目用）。
+     * 把插件私有的 `_src` 找回来（只给老曲目用）。
      *
      * `_src` 的值是各平台私有字段（qq 要 mid + mediaMid，酷我要 rid，酷狗要 hash…），
-     * 外面拼不出来，只能搜一次拿插件自己产出的那份。命中口径从严：
-     * 先按去平台前缀的 id 全等（qq_123 → 123），再退到标题 + 歌手全等；
-     * 都不中就放弃，宁可失败也不能拿同名不同版本凑数。
+     * 外面拼不出来，只能让插件自己给。两条路，先准后全：
+     * 一、按 id 取详情——大多数插件的详情里就带 `_src`，跟歌名歌手对不对无关，最可靠；
+     * 二、按「标题 歌手」搜一次，先认去平台前缀的 id 全等（qq_123 → 123），
+     *     再退到标题 + 歌手全等；都不中就放弃，宁可失败也不拿同名不同版本凑数。
      */
     private async recoverSrc(
         musicItem: IMusic.IMusicItemBase,
     ): Promise<Record<string, any> | null> {
+        const channel = this.plugin.instance.platform ?? "";
+        const withChannel = (src?: Record<string, any>) =>
+            src && (!channel || src[channel]) ? src : null;
+
+        try {
+            const info = await this.plugin.instance.getMusicInfo?.(musicItem);
+            const src = withChannel((info as any)?._src);
+            if (src) {
+                return src;
+            }
+        } catch {
+            // 详情接口不可用就退到搜索
+        }
+
         const keyword = [musicItem.title, musicItem.artist]
             .filter(Boolean)
             .join(" ");
         if (!keyword || !musicItem.id) {
             return null;
         }
-        const channel = this.plugin.instance.platform ?? "";
         const bareId = (id?: string) => {
             const value = String(id ?? "");
             return channel && value.startsWith(channel + "_")
@@ -381,7 +398,7 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
                         _.title === musicItem.title &&
                         _.artist === musicItem.artist,
                 );
-            return (hit as any)?._src ?? null;
+            return withChannel((hit as any)?._src);
         } catch {
             return null;
         }
@@ -918,6 +935,13 @@ export class Plugin {
      */
     get matchNames(): string[] {
         return _internalPluginMeta.getPluginMatchNames(this.name);
+    }
+    /**
+     * 插件内部平台标识（qq / kuwo / netease…）。
+     * 榜单、推荐歌单、专辑详情这批接口旧版不做 platform 归一，曲目里存的就是它。
+     */
+    get channel(): string {
+        return this.instance?.platform ?? "";
     }
     /** 插件的hash，作为唯一id */
     public hash: string = "";

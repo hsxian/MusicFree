@@ -47,6 +47,26 @@ describe("findPluginByPlatform", () => {
         expect(findPluginByPlatform("酷狗音乐", plugins)).toBeUndefined();
         expect(findPluginByPlatform("", plugins)).toBeUndefined();
     });
+
+    /**
+     * 榜单/推荐歌单/专辑详情这批接口旧版不做 platform 归一，曲目里存的是插件内部标识（qq）。
+     * 不认这个值，那批老曲目一律找不到插件，点歌即失败。
+     */
+    it("认插件内部平台标识：曲目里存的是 qq 也要能找到「QQ音乐」这个插件", () => {
+        const chineseName = {
+            name: "QQ音乐",
+            displayName: "QQ音乐",
+            matchNames: [],
+            channel: "qq",
+        };
+
+        expect(findPluginByPlatform("qq", [chineseName])).toBe(chineseName);
+        /** 主键仍然优先：插件真叫 qq 时不该被 channel 抢走 */
+        expect(findPluginByPlatform("qq", [chineseName, qqPlugin])).toBe(
+            qqPlugin,
+        );
+        expect(findPluginByPlatform("", [chineseName])).toBeUndefined();
+    });
 });
 
 describe("isPluginOfPlatform", () => {
@@ -58,6 +78,17 @@ describe("isPluginOfPlatform", () => {
     it("显示名不算，别家的歌也不属于这个插件", () => {
         expect(isPluginOfPlatform(qqPlugin, "腾讯音乐")).toBe(false);
         expect(isPluginOfPlatform(qqPlugin, "netease")).toBe(false);
+    });
+
+    it("内部平台标识也算这个插件的歌", () => {
+        expect(
+            isPluginOfPlatform(
+                { name: "QQ音乐", displayName: "QQ音乐", matchNames: [], channel: "qq" },
+                "qq",
+            ),
+        ).toBe(true);
+        /** 空串不能和任何未设置 channel 的插件相等 */
+        expect(isPluginOfPlatform(qqPlugin, "")).toBe(false);
     });
 });
 
