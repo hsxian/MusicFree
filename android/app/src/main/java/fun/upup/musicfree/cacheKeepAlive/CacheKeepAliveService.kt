@@ -52,16 +52,21 @@ class CacheKeepAliveService : Service() {
         }
     }
 
+    /**
+     * 前台服务必须挂一个通知，但缓存是几十秒的临时动作，不该打扰用户：
+     * 渠道设成 IMPORTANCE_NONE，通知不会出现在通知栏/状态栏，服务仍照常运行。
+     */
     private fun buildNotification(): Notification {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "播放缓存",
-                NotificationManager.IMPORTANCE_LOW,
+                NotificationManager.IMPORTANCE_NONE,
             ).apply {
                 setShowBadge(false)
                 enableVibration(false)
                 setSound(null, null)
+                lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
                 .createNotificationChannel(channel)
@@ -80,6 +85,7 @@ class CacheKeepAliveService : Service() {
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)
             .setShowWhen(false)
+            .setPriority(Notification.PRIORITY_MIN)
             .build()
     }
 
