@@ -278,9 +278,23 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
             if (knownSrc) {
                 (pluginInput as any)._src = knownSrc;
             }
-            const fetchSource = () =>
-                parserPlugin.instance.getMediaSource!(pluginInput, quality);
-            let source = (await fetchSource()) ?? null;
+            /**
+             * 插件取不到链时是**抛错**而不是返回空（那套聚合插件就是 `throw new Error("聚合取链失败…")`），
+             * 直接 await 会把异常甩到外层 catch，后面的补 _src 永远走不到。这里统一收成 null。
+             */
+            const fetchSource = async () => {
+                try {
+                    return (
+                        (await parserPlugin.instance.getMediaSource!(
+                            pluginInput,
+                            quality,
+                        )) ?? null
+                    );
+                } catch {
+                    return null;
+                }
+            };
+            let source = await fetchSource();
             let recovered: IMusic.IMusicItemBase | null = null;
             if (!source?.url) {
                 /**
@@ -294,11 +308,15 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
                     if (src) {
                         patchMediaExtra(musicItem, { src });
                     }
-                    source =
-                        (await parserPlugin.instance.getMediaSource!(
-                            resetMediaItem(recovered, this.plugin.name, true),
-                            quality,
-                        )) ?? null;
+                    try {
+                        source =
+                            (await parserPlugin.instance.getMediaSource!(
+                                resetMediaItem(recovered, this.plugin.name, true),
+                                quality,
+                            )) ?? null;
+                    } catch {
+                        source = null;
+                    }
                 }
             }
             const url = source?.url ?? musicItem?.qualities?.[quality]?.url;
