@@ -17,15 +17,15 @@ export interface IPlatformCandidate {
     /** 手动维护的匹配名。曲目里出现这些名字都算作本插件 */
     matchNames: ReadonlyArray<string>;
     /**
-     * 插件内部平台标识（qq / kuwo / netease…）。
-     * 榜单、推荐歌单、专辑详情这些接口旧版不做 platform 归一，曲目里直接存的就是它，
-     * 不认这个值的话那批老曲目一律找不到插件、点歌即失败。
+     * 插件自己声明的展示名（插件导出里的 `name`，如「QQ音乐」）。
+     * 本端曲目存的是 platform 主键（qq），但别的客户端/旧备份存的是这个名字，
+     * 不认它的话那批曲目一律找不到插件、点歌即失败。
      */
-    channel?: string;
+    declaredName?: string;
 }
 
 /**
- * 按平台名找插件：主键优先，其次匹配名，最后才认插件内部平台标识。
+ * 按平台名找插件：主键优先，其次匹配名，最后才认插件自己声明的展示名。
  *
  * 分成几趟而不是一趟里 or，是为了「某插件的匹配名恰好等于另一个插件的真实主键」时主键必胜，
  * 结果不随插件列表顺序漂。
@@ -37,11 +37,11 @@ export function findPluginByPlatform<T extends IPlatformCandidate>(
     return (
         plugins.find(_ => _.name === platform) ??
         plugins.find(_ => _.matchNames.includes(platform)) ??
-        plugins.find(_ => !!platform && _.channel === platform)
+        plugins.find(_ => !!platform && _.declaredName === platform)
     );
 }
 
-/** 这个曲目是不是这个插件的（主键、匹配名、内部平台标识任一命中即算） */
+/** 这个曲目是不是这个插件的（主键、匹配名、插件声明的展示名任一命中即算） */
 export function isPluginOfPlatform(
     plugin: IPlatformCandidate,
     platform: string,
@@ -49,7 +49,7 @@ export function isPluginOfPlatform(
     return (
         plugin.name === platform ||
         plugin.matchNames.includes(platform) ||
-        (!!platform && plugin.channel === platform)
+        (!!platform && plugin.declaredName === platform)
     );
 }
 

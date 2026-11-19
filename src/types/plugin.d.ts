@@ -62,8 +62,10 @@ declare namespace IPlugin {
     }
 
     interface IPluginDefine {
-        /** 来源名 */
+        /** 来源名（本端用它作为插件主键） */
         platform: string;
+        /** 展示名，如「QQ音乐」。别的客户端把它当 platform 存进曲目 */
+        name?: string;
         /** 匹配的版本号 */
         appVersion?: string;
         /** 插件版本 */

@@ -972,11 +972,11 @@ export class Plugin {
         return _internalPluginMeta.getPluginMatchNames(this.name);
     }
     /**
-     * 插件内部平台标识（qq / kuwo / netease…）。
-     * 榜单、推荐歌单、专辑详情这批接口旧版不做 platform 归一，曲目里存的就是它。
+     * 插件自己声明的展示名（插件导出里的 `name`，如「QQ音乐」）。
+     * 本端曲目存 platform 主键（qq），别的客户端/旧备份存的是这个名字。
      */
-    get channel(): string {
-        return this.instance?.platform ?? "";
+    get declaredName(): string {
+        return this.instance?.name ?? "";
     }
     /** 插件的hash，作为唯一id */
     public hash: string = "";

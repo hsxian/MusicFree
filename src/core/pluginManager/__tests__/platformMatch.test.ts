@@ -49,23 +49,29 @@ describe("findPluginByPlatform", () => {
     });
 
     /**
-     * 榜单/推荐歌单/专辑详情这批接口旧版不做 platform 归一，曲目里存的是插件内部标识（qq）。
-     * 不认这个值，那批老曲目一律找不到插件，点歌即失败。
+     * 本端插件主键是 platform（qq），但别的客户端/旧备份把插件声明的 name（「QQ音乐」）
+     * 当成 platform 写进曲目。不认这个名字，那批曲目一律找不到插件，点歌即失败。
      */
-    it("认插件内部平台标识：曲目里存的是 qq 也要能找到「QQ音乐」这个插件", () => {
-        const chineseName = {
-            name: "QQ音乐",
-            displayName: "QQ音乐",
+    it("认插件自己声明的展示名：曲目里是「QQ音乐」也要能找到主键为 qq 的插件", () => {
+        const padaoQQ = {
+            name: "qq",
+            displayName: "qq",
             matchNames: [],
-            channel: "qq",
+            declaredName: "QQ音乐",
         };
 
-        expect(findPluginByPlatform("qq", [chineseName])).toBe(chineseName);
-        /** 主键仍然优先：插件真叫 qq 时不该被 channel 抢走 */
-        expect(findPluginByPlatform("qq", [chineseName, qqPlugin])).toBe(
-            qqPlugin,
-        );
-        expect(findPluginByPlatform("", [chineseName])).toBeUndefined();
+        expect(findPluginByPlatform("QQ音乐", [padaoQQ])).toBe(padaoQQ);
+        expect(findPluginByPlatform("", [padaoQQ])).toBeUndefined();
+
+        /** 主键仍然优先：真叫 qq 的那个插件不该被别家的展示名抢走 */
+        const realQQ = { name: "qq", displayName: "qq", matchNames: [] };
+        const impostor = {
+            name: "腾讯",
+            displayName: "腾讯",
+            matchNames: [],
+            declaredName: "qq",
+        };
+        expect(findPluginByPlatform("qq", [impostor, realQQ])).toBe(realQQ);
     });
 });
 
@@ -80,14 +86,14 @@ describe("isPluginOfPlatform", () => {
         expect(isPluginOfPlatform(qqPlugin, "netease")).toBe(false);
     });
 
-    it("内部平台标识也算这个插件的歌", () => {
+    it("插件声明的展示名也算这个插件的歌", () => {
         expect(
             isPluginOfPlatform(
-                { name: "QQ音乐", displayName: "QQ音乐", matchNames: [], channel: "qq" },
-                "qq",
+                { name: "qq", displayName: "qq", matchNames: [], declaredName: "QQ音乐" },
+                "QQ音乐",
             ),
         ).toBe(true);
-        /** 空串不能和任何未设置 channel 的插件相等 */
+        /** 空串不能和任何未声明展示名的插件相等 */
         expect(isPluginOfPlatform(qqPlugin, "")).toBe(false);
     });
 });
