@@ -281,21 +281,40 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
             const fetchSource = () =>
                 parserPlugin.instance.getMediaSource!(pluginInput, quality);
             let source = (await fetchSource()) ?? null;
+            let recovered: IMusic.IMusicItemBase | null = null;
             if (!source?.url) {
                 /**
-                 * 取不到源时补一次 `_src`：老曲目（导入/备份）根本没有，或者留着换插件前那份、
-                 * 通道键对不上，插件都会直接返回空。补到就存起来，下次不用再补。
+                 * 取不到源就用插件自己的产物重建这首歌再试一次：老曲目（导入/备份）要么没有
+                 * `_src`，要么留着换插件前那份，插件都直接返回空。重建出来的就是插件自己
+                 * search 过的那份，和"重新搜一遍再点播"完全等价。
                  */
-                const src = await this.recoverSrc(pluginInput);
-                if (src && JSON.stringify(src) !== JSON.stringify(knownSrc)) {
-                    (pluginInput as any)._src = src;
-                    patchMediaExtra(musicItem, { src });
-                    source = (await fetchSource()) ?? null;
+                recovered = await this.recoverItem(pluginInput);
+                if (recovered) {
+                    const src = (recovered as any)._src;
+                    if (src) {
+                        patchMediaExtra(musicItem, { src });
+                    }
+                    source =
+                        (await parserPlugin.instance.getMediaSource!(
+                            resetMediaItem(recovered, this.plugin.name, true),
+                            quality,
+                        )) ?? null;
                 }
             }
             const url = source?.url ?? musicItem?.qualities?.[quality]?.url;
             const headers = source?.headers;
             if (!url) {
+                /** 失败时把关键信息一并留下，否则只有一句插件自己的报错，没法定位是哪首歌、缺什么 */
+                errorLog("取源失败", {
+                    platform: pluginInput.platform,
+                    id: pluginInput.id,
+                    title: musicItem.title,
+                    artist: musicItem.artist,
+                    src: (pluginInput as any)._src
+                        ? Object.keys((pluginInput as any)._src)
+                        : null,
+                    recovered: !!recovered,
+                });
                 throw new Error("NOT RETRY");
             }
             trace("播放", "插件播放");
@@ -347,26 +366,24 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
     }
 
     /**
-     * 把插件私有的 `_src` 找回来（只给老曲目用）。
+     * 用插件自己的产物把老曲目重建一遍（只给取源失败时用）。
      *
      * `_src` 的值是各平台私有字段（qq 要 mid + mediaMid，酷我要 rid，酷狗要 hash…），
      * 外面拼不出来，只能让插件自己给。两条路，先准后全：
-     * 一、按 id 取详情——大多数插件的详情里就带 `_src`，跟歌名歌手对不对无关，最可靠；
+     * 一、按 id 取详情——多数插件详情里就带 `_src`，跟歌名歌手对不对无关，最可靠；
      * 二、按「标题 歌手」搜一次，先认去平台前缀的 id 全等（qq_123 → 123），
      *     再退到标题 + 歌手全等；都不中就放弃，宁可失败也不拿同名不同版本凑数。
      */
-    private async recoverSrc(
+    private async recoverItem(
         musicItem: IMusic.IMusicItemBase,
-    ): Promise<Record<string, any> | null> {
-        const channel = this.plugin.instance.platform ?? "";
-        const withChannel = (src?: Record<string, any>) =>
-            src && (!channel || src[channel]) ? src : null;
+    ): Promise<IMusic.IMusicItemBase | null> {
+        const hasSrc = (item: any) =>
+            !!item?._src && Object.keys(item._src).length > 0;
 
         try {
             const info = await this.plugin.instance.getMusicInfo?.(musicItem);
-            const src = withChannel((info as any)?._src);
-            if (src) {
-                return src;
+            if (hasSrc(info)) {
+                return info as IMusic.IMusicItemBase;
             }
         } catch {
             // 详情接口不可用就退到搜索
@@ -378,6 +395,7 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
         if (!keyword || !musicItem.id) {
             return null;
         }
+        const channel = this.plugin.instance.platform ?? "";
         const bareId = (id?: string) => {
             const value = String(id ?? "");
             return channel && value.startsWith(channel + "_")
@@ -391,14 +409,31 @@ class PluginMethodsWrapper implements IPlugin.IPluginInstanceMethods {
                 "music",
             );
             const list = (result?.data ?? []) as IMusic.IMusicItemBase[];
+            /**
+             * 第三档只放宽"同名"的写法差异（空格/大小写/标点），但要求时长差 ≤3 秒，
+             * 免得像按名取链那样把同名不同版本也认下来。
+             */
+            const norm = (value?: string) =>
+                String(value ?? "")
+                    .toLowerCase()
+                    .replace(/[^0-9a-z\u4e00-\u9fa5]/g, "");
+            const nearDuration = (item: any) =>
+                !musicItem.duration ||
+                !item.duration ||
+                Math.abs(item.duration - musicItem.duration) <= 3;
             const hit =
                 list.find(_ => bareId(_.id) === bareId(musicItem.id)) ??
                 list.find(
                     _ =>
                         _.title === musicItem.title &&
                         _.artist === musicItem.artist,
+                ) ??
+                list.find(
+                    _ =>
+                        norm(_.title) === norm(musicItem.title) &&
+                        nearDuration(_),
                 );
-            return withChannel((hit as any)?._src);
+            return hit && hasSrc(hit) ? hit : null;
         } catch {
             return null;
         }
